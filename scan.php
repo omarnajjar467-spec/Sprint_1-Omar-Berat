@@ -1,7 +1,3 @@
-<?php
-require "config.php";
-
-?>
 <!DOCTYPE html>
 <html lang="nl">
 <head>
@@ -20,7 +16,7 @@ require "config.php";
       <div class="sb-brand"><div class="brand-mark"></div><span>Check-in Systeem</span></div>
 
       <div class="nav-group">
-        <a class="nav-head top" href="index.html" style="text-decoration:none;">
+        <a class="nav-head top" href="index.php" style="text-decoration:none;">
           <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-7 9 7"/><path d="M5 10v9a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1v-9"/></svg>
           Home
         </a>
@@ -74,14 +70,14 @@ require "config.php";
     </div>
 
     <div class="main">
-      <div class="page-head"><h2>Scan pasje</h2><div class="sub">Simuleer het scannen van een studentenpas</div></div>
+      <div class="page-head"><h2>Scan pasje</h2><div class="sub">Houd de scanner op dit veld gericht, of typ handmatig en druk op Enter</div></div>
 
       <div class="scan-box">
         <div class="field">
           <label>Pasjenummer</label>
-          <input type="text" id="scanCard" placeholder="Bijv. P-1042">
+          <input type="text" id="scanInput" placeholder="Scan een pasje of typ P-1042" autofocus autocomplete="off">
         </div>
-        <button class="btn-primary btn-block" onclick="doScan()">Scan pasje</button>
+        <button class="btn-primary btn-block" onclick="verwerkScan()">Scan pasje</button>
       </div>
 
       <div class="result-box" id="scanResult">
@@ -95,15 +91,51 @@ require "config.php";
   </div>
 </div>
 
-<script src="data.js"></script>
 <script>
-  var uurTeLaat = 8;
-  var minuutTeLaat = 55;
+  var scanInput = document.getElementById("scanInput");
 
-  function doScan() {
-    var ingevoerdPasje = document.getElementById("scanCard").value.trim();
-    var student = studentByCard(ingevoerdPasje);
+  // Een scanner stuurt de tekens razendsnel achter elkaar en daarna een Enter.
+  // Daarom wachten we op Enter, in plaats van op elk teken te reageren.
+  scanInput.addEventListener("keydown", function (event) {
+    if (event.key === "Enter") {
+      event.preventDefault(); // voorkomt dat er per ongeluk een formulier verstuurd wordt
+      verwerkScan();
+    }
+  });
 
+  // Houd het veld altijd gefocust, zodat de scanner er altijd in kan "typen",
+  // ook als iemand per ongeluk ergens anders op de pagina klikt.
+  scanInput.addEventListener("blur", function () {
+    setTimeout(function () {
+      scanInput.focus();
+    }, 100);
+  });
+
+  function verwerkScan() {
+    var cardNumber = scanInput.value.trim();
+    scanInput.value = "";
+
+    if (cardNumber === "") {
+      return;
+    }
+
+    fetch("checkin.php", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cardNumber: cardNumber })
+    })
+      .then(function (response) {
+        return response.json();
+      })
+      .then(function (data) {
+        toonResultaat(data);
+      })
+      .catch(function () {
+        toonResultaat({ error: "Kon geen verbinding maken met de server." });
+      });
+  }
+
+  function toonResultaat(data) {
     var box = document.getElementById("scanResult");
     var icon = document.getElementById("scanIcon");
     var title = document.getElementById("scanTitle");
@@ -111,26 +143,16 @@ require "config.php";
 
     box.classList.remove("ok", "fout");
 
-    if (student === null) {
+    if (data.error) {
       box.classList.add("fout");
       icon.innerHTML = "<circle cx='12' cy='12' r='9'/><path d='M12 8v5'/><path d='M12 16.2h.01'/>";
-      title.textContent = "Pasje niet herkend";
-      sub.textContent = "Geen student gevonden met pasjenummer \"" + ingevoerdPasje + "\".";
+      title.textContent = "Kon niet inchecken";
+      sub.textContent = data.error;
       box.classList.add("show");
       return;
     }
 
-    var nu = new Date();
-    var uur = nu.getHours();
-    var minuut = nu.getMinutes();
-    var tijdTekst = (uur < 10 ? "0" : "") + uur + ":" + (minuut < 10 ? "0" : "") + minuut;
-
-    var isTeLaat = (uur > uurTeLaat) || (uur === uurTeLaat && minuut >= minuutTeLaat);
-    var status = isTeLaat ? "fout" : "ok";
-
-    checkins.unshift({ time: tijdTekst, studentId: student.id, card: student.card, status: status });
-
-    if (status === "ok") {
+    if (data.status === "op_tijd") {
       box.classList.add("ok");
       icon.innerHTML = "<path d='M5 12l5 5 9-10'/>";
       title.textContent = "Op tijd ingecheckt";
@@ -139,7 +161,8 @@ require "config.php";
       icon.innerHTML = "<circle cx='12' cy='12' r='9'/><path d='M12 8v5'/><path d='M12 16.2h.01'/>";
       title.textContent = "Te laat ingecheckt";
     }
-    sub.textContent = student.name + " · " + student.group + " · " + tijdTekst;
+
+    sub.textContent = data.student + " · " + data.groep + " · " + data.tijd;
     box.classList.add("show");
   }
 </script>
